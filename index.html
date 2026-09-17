@@ -500,6 +500,7 @@ zoomGroup.appendChild(deptGroup);
 
 // Draw leader lines (only for markers that were displaced from their true point)
 const leaderGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+const leaderRefs = {};
 for (const p of PLACED) {
   if (!p.displaced) continue;
   const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
@@ -509,6 +510,7 @@ for (const p of PLACED) {
   line.setAttribute('y2', p.pos[1]);
   line.setAttribute('class', 'leader-line');
   leaderGroup.appendChild(line);
+  leaderRefs[p.company.id] = line;
 }
 zoomGroup.appendChild(leaderGroup);
 
@@ -555,8 +557,37 @@ let zoom = 1;
 let panX = 0;
 let panY = 0;
 
+// As the user zooms in, gradually walk displaced (fanned-out) markers back
+// toward their true geographic position, and shrink/fade their leader line
+// to match — by DECLUTTER_ZOOM_END they sit exactly where they really are.
+const DECLUTTER_ZOOM_END = 4.5;
+
+function updateDeclutteredPositions() {
+  const blend = Math.max(0, Math.min(1, (zoom - 1) / (DECLUTTER_ZOOM_END - 1)));
+  for (const p of PLACED) {
+    if (!p.displaced) continue;
+    const x = p.pos[0] + (p.original[0] - p.pos[0]) * blend;
+    const y = p.pos[1] + (p.original[1] - p.pos[1]) * blend;
+    const g = markerRefs[p.company.id];
+    const circle = g.querySelector('circle');
+    const text = g.querySelector('text');
+    circle.setAttribute('cx', x);
+    circle.setAttribute('cy', y);
+    text.setAttribute('x', x);
+    text.setAttribute('y', y);
+    const line = leaderRefs[p.company.id];
+    if (line) {
+      line.setAttribute('x2', x);
+      line.setAttribute('y2', y);
+      line.style.opacity = 0.6 * (1 - blend);
+    }
+  }
+}
+
 function applyTransform() {
   zoomGroup.setAttribute('transform', `translate(${panX} ${panY}) scale(${zoom})`);
+  // Walk displaced markers back toward their true position as zoom increases
+  updateDeclutteredPositions();
   // Keep marker circles/text a legible, near-constant size regardless of zoom
   const counterScale = 1 / zoom;
   markerGroup.querySelectorAll('.marker').forEach(g => {
